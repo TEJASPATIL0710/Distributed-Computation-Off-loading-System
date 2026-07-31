@@ -1,0 +1,16 @@
+from celery import Celery
+
+celery_app = Celery(
+    "compute_offload",
+    broker="redis://localhost:6379/0",
+    backend="redis://localhost:6379/0",
+)
+
+celery_app.conf.task_serializer = "json"
+celery_app.conf.result_serializer = "json"
+celery_app.conf.accept_content = ["json"]
+celery_app.conf.result_expires = 3600  # results kept for 1 hour, then cleaned up
+celery_app.conf.task_acks_late = True
+celery_app.conf.task_reject_on_worker_lost = True
+
+import tasks  # noqa: E402 — must come after celery_app is defined, registers our tasks
