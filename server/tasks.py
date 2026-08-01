@@ -33,7 +33,7 @@ def run_general_task(payload: str):
             ],
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=30,
         )
         elapsed = time.time() - start
         return {

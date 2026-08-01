@@ -3,7 +3,7 @@ import requests
 
 SERVER_URL = "http://localhost:8000"
 
-payload = "import time\ntime.sleep(8)\nprint('survived the whole 8 seconds')"
+payload = "import time\ntime.sleep(20)\nprint('survived the whole 20 seconds')"
 
 resp = requests.post(
     f"{SERVER_URL}/submit-task",
@@ -11,7 +11,7 @@ resp = requests.post(
 )
 task_id = resp.json()["task_id"]
 print(f"Task submitted: {task_id}")
-print("Now go kill one of the worker terminals within the next 8 seconds (Ctrl+C it).")
+print("Now go kill one of the worker terminals within the next 20 seconds (Ctrl+C it).")
 
 start = time.time()
 while True:
