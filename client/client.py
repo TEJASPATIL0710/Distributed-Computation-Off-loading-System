@@ -41,17 +41,11 @@ def wait_for_result(task_id: str, client_id: str = "client-1", poll_interval: fl
         time.sleep(poll_interval)
 
 if __name__ == "__main__":
-    ml_script = (
-        "import torch\n"
-        "import torch.nn as nn\n"
-        "\n"
-        "model = nn.Sequential(nn.Linear(10, 32), nn.ReLU(), nn.Linear(32, 2))\n"
-        "model.eval()\n"
-        "\n"
-        "dummy_input = torch.rand(1, 10)\n"
-        "with torch.no_grad():\n"
-        "    output = model(dummy_input)\n"
-        "print(f'Inference output: {output.tolist()}')"
+    render_script = (
+        "ffmpeg -f lavfi -i testsrc=duration=3:size=320x240:rate=15 "
+        "-c:v libx264 -y /task/output.mp4 2>&1 | tail -n 5\n"
+        "ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 /task/output.mp4\n"
+        "echo 'Render complete'"
     )
-    tid = submit_task(ml_script, task_type="ml")
+    tid = submit_task(render_script, task_type="render")
     wait_for_result(tid)

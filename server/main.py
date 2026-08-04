@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from celery_app import celery_app
-from tasks import run_general_task, run_numeric_task, run_ml_task
+from tasks import run_general_task, run_numeric_task, run_ml_task, run_render_task
 
 app = FastAPI(title="Compute Offload Server — Module 3")
 
@@ -36,6 +36,7 @@ def submit_task(task: TaskRequest):
         "general": run_general_task,
         "numeric": run_numeric_task,
         "ml": run_ml_task,
+        "render": run_render_task,
     }
 
     task_fn = task_dispatch.get(task.task_type)
