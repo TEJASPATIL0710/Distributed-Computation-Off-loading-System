@@ -156,7 +156,7 @@ def run_render_task(payload: str):
     start = time.time()
 
     with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".sh", delete=False, encoding="utf-8"
+        mode="w", suffix=".sh", delete=False, encoding="utf-8", newline="\n"
     ) as f:
         f.write(payload)
         script_path = f.name
