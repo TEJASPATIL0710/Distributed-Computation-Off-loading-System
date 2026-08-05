@@ -4,6 +4,7 @@ import requests
 
 SERVER_URL = "http://localhost:8000"
 
+API_KEY = "key-client-alpha"
 
 def submit_task(payload: str, task_type: str = "general", client_id: str = "client-1"):
     print(f"[{client_id}] Submitting task...")
@@ -11,6 +12,7 @@ def submit_task(payload: str, task_type: str = "general", client_id: str = "clie
     response = requests.post(
         f"{SERVER_URL}/submit-task",
         json={"task_type": task_type, "payload": payload, "client_id": client_id},
+        headers={"X-API-Key": API_KEY},
     )
     response.raise_for_status()
     submitted = response.json()
@@ -24,7 +26,7 @@ def wait_for_result(task_id: str, client_id: str = "client-1", poll_interval: fl
     start = time.time()
 
     while True:
-        response = requests.get(f"{SERVER_URL}/task-result/{task_id}")
+        response = requests.get(f"{SERVER_URL}/task-result/{task_id}", headers={"X-API-Key": API_KEY})
         response.raise_for_status()
         data = response.json()
 

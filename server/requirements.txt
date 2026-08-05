@@ -3,3 +3,4 @@ uvicorn[standard]==0.30.6
 pydantic==2.9.2
 celery==5.4.0
 redis==5.0.8
+slowapi==0.1.9
