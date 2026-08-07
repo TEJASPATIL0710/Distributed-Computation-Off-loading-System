@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Compute Offload Dashboard</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #111;
+            color: #eee;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #4fc3f7;
+        }
+
+        .cards {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: #222;
+            padding: 20px;
+            border-radius: 8px;
+            min-width: 150px;
+        }
+
+        .card .number {
+            font-size: 32px;
+            color: #81c784;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 8px;
+            border-bottom: 1px solid #333;
+        }
+
+        th {
+            color: #4fc3f7;
+        }
+
+        .SUCCESS {
+            color: #81c784;
+        }
+
+        .PENDING {
+            color: #ffb74d;
+        }
+
+        .FAILURE {
+            color: #e57373;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Compute Offload — Live Dashboard</h1>
+
+    <div class="cards">
+        <div class="card">
+            <div>Queue Length</div>
+            <div class="number" id="queue-length">-</div>
+        </div>
+        <div class="card">
+            <div>Total Workers</div>
+            <div class="number" id="worker-count">-</div>
+        </div>
+        <div class="card">
+            <div>Busy Right Now</div>
+            <div class="number" id="busy-count">-</div>
+        </div>
+    </div>
+
+    <h2>Workers</h2>
+    <table id="workers-table">
+        <tr>
+            <th>Worker</th>
+            <th>Status</th>
+            <th>Running</th>
+        </tr>
+    </table>
+
+    <h2>Recent Tasks</h2>
+    <table id="tasks-table">
+        <tr>
+            <th>Task ID</th>
+            <th>Type</th>
+            <th>Client</th>
+            <th>Worker</th>
+            <th>State</th>
+        </tr>
+    </table>
+
+    <script>
+        async function refresh() {
+            const res = await fetch("/dashboard-data");
+            const data = await res.json();
+
+            document.getElementById("queue-length").innerText = data.queue_length;
+            document.getElementById("worker-count").innerText = data.workers.length;
+            document.getElementById("busy-count").innerText = data.busy_workers;
+
+            const workersTable = document.getElementById("workers-table");
+            workersTable.innerHTML = "<tr><th>Worker</th><th>Status</th><th>Running</th></tr>";
+            data.workers.forEach(w => {
+                workersTable.innerHTML += `<tr>
+                    <td>${w.worker}</td>
+                    <td>${w.busy ? "BUSY" : "IDLE"}</td>
+                    <td>${w.current_tasks.join(", ") || "-"}</td>
+                </tr>`;
+            });
+
+            const tasksTable = document.getElementById("tasks-table");
+            tasksTable.innerHTML = "<tr><th>Task ID</th><th>Type</th><th>Client</th><th>Worker</th><th>State</th></tr>";
+            data.recent_tasks.forEach(t => {
+                tasksTable.innerHTML += `<tr>
+                    <td>${t.task_id}</td>
+                    <td>${t.task_type}</td>
+                    <td>${t.client}</td>
+                    <td>${t.worker}</td>
+                    <td class="${t.state}">${t.state}</td>
+                </tr>`;
+            });
+        }
+
+        refresh();
+        setInterval(refresh, 2000);  // refresh every 2 seconds
+    </script>
+</body>
+
+</html>

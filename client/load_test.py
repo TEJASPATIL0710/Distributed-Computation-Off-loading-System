@@ -20,13 +20,14 @@ def submit_and_wait(client_id: str, payload: str, task_type: str, results: dict)
     submit_resp = requests.post(
         f"{SERVER_URL}/submit-task",
         json={"task_type": task_type, "payload": payload, "client_id": client_id},
+        headers={"X-API-Key": "key-client-alpha"},
     )
     submit_resp.raise_for_status()
     task_id = submit_resp.json()["task_id"]
     print(f"[{client_id}] submitted (task_id={task_id[:8]}...)")
 
     while True:
-        poll_resp = requests.get(f"{SERVER_URL}/task-result/{task_id}")
+        poll_resp = requests.get(f"{SERVER_URL}/task-result/{task_id}", headers={"X-API-Key": "key-client-alpha"})
         data = poll_resp.json()
         if data["state"] != "PENDING":
             elapsed = time.time() - start
@@ -45,6 +46,8 @@ if __name__ == "__main__":
         ("client-D", "numeric", "import numpy as np\na=np.random.rand(300,300)\nprint((a@a).sum())"),
         ("client-E", "ml", "import torch\nm=torch.nn.Linear(10,2)\nprint(m(torch.rand(1,10)).tolist())"),
         ("client-F", "ml", "import torch\nm=torch.nn.Linear(10,2)\nprint(m(torch.rand(1,10)).tolist())"),
+        ("client-G", "render", "ffmpeg -f lavfi -i testsrc=duration=2:size=160x120:rate=10 -c:v libx264 -y /task/output.mp4 2>&1 | tail -n 3\necho done"),
+        ("client-H", "render", "ffmpeg -f lavfi -i testsrc=duration=2:size=160x120:rate=10 -c:v libx264 -y /task/output.mp4 2>&1 | tail -n 3\necho done"),
     ]
 
     results = {}
