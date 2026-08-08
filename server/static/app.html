@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Compute Offload</title>
+    <style>
+        body { font-family: monospace; background: #111; color: #eee; padding: 30px; max-width: 800px; margin: 0 auto; }
+        h1 { color: #4fc3f7; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        a { color: #81c784; text-decoration: none; margin-left: 15px; }
+        select, textarea, button { width: 100%; padding: 10px; margin: 8px 0; background: #222; border: 1px solid #444; color: #eee; border-radius: 4px; box-sizing: border-box; font-family: monospace; }
+        textarea { height: 150px; resize: vertical; }
+        button { background: #1c7293; cursor: pointer; border: none; }
+        button:hover { background: #4fc3f7; }
+        #result { margin-top: 20px; background: #222; padding: 15px; border-radius: 8px; white-space: pre-wrap; font-size: 13px; min-height: 40px; }
+        .SUCCESS { color: #81c784; }
+        .FAILURE, .error { color: #e57373; }
+        .PENDING { color: #ffb74d; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <h1>Submit a Task</h1>
+        <div>
+            <span id="whoami"></span>
+            <a href="/dashboard">Dashboard</a>
+            <a href="#" onclick="logout()">Log Out</a>
+        </div>
+    </div>
+
+    <select id="taskType">
+        <option value="general">General Script (Python)</option>
+        <option value="numeric">Numeric (NumPy/SciPy)</option>
+        <option value="ml">ML Inference (PyTorch)</option>
+        <option value="render">Render (FFmpeg shell command)</option>
+    </select>
+
+    <textarea id="payload" placeholder="Paste your script or command here..."></textarea>
+
+    <button onclick="submitTask()">Submit Task</button>
+
+    <div id="result">Result will appear here...</div>
+
+    <script>
+        const token = localStorage.getItem("access_token");
+        if (!token) {
+            window.location.href = "/static/login.html";
+        }
+        document.getElementById("whoami").innerText = "Logged in as " + localStorage.getItem("username");
+
+        function logout() {
+            localStorage.removeItem("access_token");
+            localStorage.removeItem("username");
+            window.location.href = "/static/login.html";
+        }
+
+        async function submitTask() {
+            const taskType = document.getElementById("taskType").value;
+            const payload = document.getElementById("payload").value;
+            const resultDiv = document.getElementById("result");
+
+            resultDiv.className = "";
+            resultDiv.innerText = "Submitting...";
+
+            const submitRes = await fetch("/submit-task", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer " + token,
+                },
+                body: JSON.stringify({ task_type: taskType, payload: payload, client_id: "web-ui" }),
+            });
+
+            if (submitRes.status === 401) {
+                logout();
+                return;
+            }
+            if (!submitRes.ok) {
+                resultDiv.className = "error";
+                resultDiv.innerText = "Submission failed: " + (await submitRes.text());
+                return;
+            }
+
+            const submitData = await submitRes.json();
+            resultDiv.innerText = "Queued (task_id=" + submitData.task_id + "). Waiting for result...";
+
+            pollResult(submitData.task_id);
+        }
+
+        async function pollResult(taskId) {
+            const resultDiv = document.getElementById("result");
+
+            const poll = async () => {
+                const res = await fetch("/task-result/" + taskId, {
+                    headers: { "Authorization": "Bearer " + token },
+                });
+                const data = await res.json();
+
+                if (data.state === "PENDING") {
+                    setTimeout(poll, 1000);
+                    return;
+                }
+
+                resultDiv.className = data.state;
+                const r = data.result || {};
+                let text = "State: " + data.state + "\n\n";
+                text += "--- OUTPUT ---\n" + (r.stdout || "(no output)") + "\n";
+                if (r.stderr) {
+                    text += "\n--- ERRORS ---\n" + r.stderr;
+                }
+                resultDiv.innerText = text;
+            };
+
+            poll();
+        }
+    </script>
+</body>
+</html>

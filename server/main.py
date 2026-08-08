@@ -21,12 +21,14 @@ from reportlab.lib.pagesizes import landscape, A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import cm
+from fastapi.staticfiles import StaticFiles
 
 dashboard_redis = redis_lib.Redis(host="localhost", port=6379, db=1, decode_responses=True)
 # Using db=1 here (not db=0, which Celery uses) keeps our dashboard
 # data cleanly separated from Celery's internal broker/result data.
 
 app = FastAPI(title="Compute Offload Server — Module 6")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter

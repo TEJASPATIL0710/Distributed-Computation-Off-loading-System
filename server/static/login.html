@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login — Compute Offload</title>
+    <style>
+        body { font-family: monospace; background: #111; color: #eee; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .box { background: #222; padding: 40px; border-radius: 8px; width: 300px; }
+        h1 { color: #4fc3f7; font-size: 20px; }
+        input { width: 100%; padding: 10px; margin: 8px 0; background: #333; border: 1px solid #444; color: #eee; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background: #1c7293; border: none; color: white; border-radius: 4px; cursor: pointer; margin-top: 10px; }
+        button:hover { background: #4fc3f7; }
+        #error { color: #e57373; margin-top: 10px; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h1>Compute Offload — Login</h1>
+        <input type="text" id="username" placeholder="Username">
+        <input type="password" id="password" placeholder="Password">
+        <button onclick="doLogin()">Log In</button>
+        <div id="error"></div>
+    </div>
+
+    <script>
+        async function doLogin() {
+            const username = document.getElementById("username").value;
+            const password = document.getElementById("password").value;
+            const errorDiv = document.getElementById("error");
+            errorDiv.innerText = "";
+
+            try {
+                const res = await fetch("/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password }),
+                });
+
+                if (!res.ok) {
+                    errorDiv.innerText = "Invalid username or password.";
+                    return;
+                }
+
+                const data = await res.json();
+                localStorage.setItem("access_token", data.access_token);
+                localStorage.setItem("username", username);
+                window.location.href = "/static/app.html";
+            } catch (e) {
+                errorDiv.innerText = "Could not reach server.";
+            }
+        }
+    </script>
+</body>
+</html>
