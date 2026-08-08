@@ -12,8 +12,18 @@ import time
 import requests
 
 SERVER_URL = "http://localhost:8000"
-API_KEY = "key-client-alpha"
+USERNAME = "tejas"
+PASSWORD = "mypassword123"
 
+def login() -> str:
+    resp = requests.post(
+        f"{SERVER_URL}/login",
+        json={"username": USERNAME, "password": PASSWORD},
+    )
+    resp.raise_for_status()
+    return resp.json()["access_token"]
+
+ACCESS_TOKEN = login()
 
 def submit_and_run(file_path: str, task_type: str = "general", client_id: str = "user-client"):
     with open(file_path, "r", encoding="utf-8") as f:
@@ -23,7 +33,7 @@ def submit_and_run(file_path: str, task_type: str = "general", client_id: str = 
     submit_resp = requests.post(
         f"{SERVER_URL}/submit-task",
         json={"task_type": task_type, "payload": code, "client_id": client_id},
-        headers={"X-API-Key": API_KEY},
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
     )
     submit_resp.raise_for_status()
     task_id = submit_resp.json()["task_id"]
@@ -33,7 +43,7 @@ def submit_and_run(file_path: str, task_type: str = "general", client_id: str = 
     while True:
         poll_resp = requests.get(
             f"{SERVER_URL}/task-result/{task_id}",
-            headers={"X-API-Key": API_KEY},
+            headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
         )
         poll_resp.raise_for_status()
         data = poll_resp.json()

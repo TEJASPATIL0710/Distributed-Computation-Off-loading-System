@@ -1,0 +1,10 @@
+id,task_id,username,ip_address,task_type,submitted_at,state,stderr,execution_time_sec
+4,f9c4a66c-a725-486b-904c-0904306cc0d2,tejas,127.0.0.1,general,2026-08-07T09:48:09.420507+00:00,SUCCESS,"Traceback (most recent call last):
+  File ""/task/script.py"", line 2, in <module>
+    result = 1 / 0
+             ~~^~~
+ZeroDivisionError: division by zero
+",1.2107
+3,47257730-9351-46af-a4cc-28b985eed5f9,tejas,127.0.0.1,numeric,2026-08-07T09:46:58.886618+00:00,SUCCESS,,0.8737
+2,db850a3b-49c5-446e-a502-54ccab33c2eb,tejas,127.0.0.1,general,2026-08-07T09:46:05.025715+00:00,SUCCESS,,1.0975
+1,fbd699e3-e91e-4c80-ab39-9a8c1eb6b21a,tejas,127.0.0.1,general,2026-08-07T09:29:25.745851+00:00,,,

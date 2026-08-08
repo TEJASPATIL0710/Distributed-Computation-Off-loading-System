@@ -12,7 +12,18 @@ import time
 import requests
 
 SERVER_URL = "http://localhost:8000"
+USERNAME = "tejas"
+PASSWORD = "mypassword123"
 
+def login() -> str:
+    resp = requests.post(
+        f"{SERVER_URL}/login",
+        json={"username": USERNAME, "password": PASSWORD},
+    )
+    resp.raise_for_status()
+    return resp.json()["access_token"]
+
+ACCESS_TOKEN = login()
 
 def submit_and_wait(client_id: str, payload: str, task_type: str, results: dict):
     start = time.time()
@@ -20,14 +31,14 @@ def submit_and_wait(client_id: str, payload: str, task_type: str, results: dict)
     submit_resp = requests.post(
         f"{SERVER_URL}/submit-task",
         json={"task_type": task_type, "payload": payload, "client_id": client_id},
-        headers={"X-API-Key": "key-client-alpha"},
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
     )
     submit_resp.raise_for_status()
     task_id = submit_resp.json()["task_id"]
     print(f"[{client_id}] submitted (task_id={task_id[:8]}...)")
 
     while True:
-        poll_resp = requests.get(f"{SERVER_URL}/task-result/{task_id}", headers={"X-API-Key": "key-client-alpha"})
+        poll_resp = requests.get(f"{SERVER_URL}/task-result/{task_id}", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
         data = poll_resp.json()
         if data["state"] != "PENDING":
             elapsed = time.time() - start
