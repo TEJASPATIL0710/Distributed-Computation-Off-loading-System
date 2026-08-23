@@ -1,0 +1,105 @@
+/* ===== Design tokens ===== */
+:root {
+    --bg: #0a0e1a;
+    --bg-elevated: #111827;
+    --card: #151d30;
+    --border: rgba(255, 255, 255, 0.08);
+    --text: #e6eaf2;
+    --text-muted: #8b96ab;
+    --accent: #2dd4bf;
+    --accent-glow: rgba(45, 212, 191, 0.35);
+    --accent-soft: rgba(45, 212, 191, 0.1);
+    --danger: #f87171;
+    --warning: #fbbf24;
+    --success: #4ade80;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: radial-gradient(circle at top left, #0f1a2e 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+h1,
+h2,
+h3 {
+    font-family: 'Space Grotesk', sans-serif;
+    color: var(--text);
+    margin: 0 0 8px 0;
+}
+
+.accent {
+    color: var(--accent);
+}
+
+/* ===== Inputs ===== */
+input,
+select,
+textarea {
+    width: 100%;
+    padding: 12px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* ===== Buttons ===== */
+button {
+    padding: 12px;
+    background: var(--accent);
+    color: #06201c;
+    border: none;
+    border-radius: 6px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    cursor: pointer;
+    transition: box-shadow 0.2s, transform 0.1s;
+}
+
+button:hover {
+    box-shadow: 0 0 20px var(--accent-glow);
+    transform: translateY(-1px);
+}
+
+button:active {
+    transform: translateY(0);
+}
+
+/* ===== Cards ===== */
+.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+}
+
+/* ===== Status colors (reused across dashboard/output) ===== */
+.SUCCESS {
+    color: var(--success);
+}
+
+.FAILURE,
+.error {
+    color: var(--danger);
+}
+
+.PENDING {
+    color: var(--warning);
+}

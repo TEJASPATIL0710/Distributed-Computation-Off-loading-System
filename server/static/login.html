@@ -2,19 +2,23 @@
 <html>
 <head>
     <title>Login — Compute Offload</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
     <style>
-        body { font-family: monospace; background: #111; color: #eee; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .box { background: #222; padding: 40px; border-radius: 8px; width: 300px; }
-        h1 { color: #4fc3f7; font-size: 20px; }
-        input { width: 100%; padding: 10px; margin: 8px 0; background: #333; border: 1px solid #444; color: #eee; border-radius: 4px; box-sizing: border-box; }
-        button { width: 100%; padding: 10px; background: #1c7293; border: none; color: white; border-radius: 4px; cursor: pointer; margin-top: 10px; }
-        button:hover { background: #4fc3f7; }
-        #error { color: #e57373; margin-top: 10px; font-size: 13px; }
+        body { display: flex; justify-content: center; align-items: center; height: 100vh; }
+        .login-box { width: 340px; }
+        .login-box h1 { font-size: 22px; margin-bottom: 4px; }
+        .login-box p { color: var(--text-muted); font-size: 13px; margin-top: 0; margin-bottom: 24px; }
+        .login-box input { margin-bottom: 12px; }
+        .login-box button { width: 100%; margin-top: 8px; }
+        #error { color: var(--danger); font-size: 13px; margin-top: 12px; min-height: 16px; }
     </style>
 </head>
 <body>
-    <div class="box">
-        <h1>Compute Offload — Login</h1>
+    <div class="card login-box">
+        <h1>Compute<span class="accent">Offload</span></h1>
+        <p>Sign in to submit tasks</p>
         <input type="text" id="username" placeholder="Username">
         <input type="password" id="password" placeholder="Password">
         <button onclick="doLogin()">Log In</button>

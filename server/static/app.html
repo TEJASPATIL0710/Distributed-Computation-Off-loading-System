@@ -2,50 +2,92 @@
 <html>
 <head>
     <title>Compute Offload</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
     <style>
-        body { font-family: monospace; background: #111; color: #eee; padding: 30px; max-width: 800px; margin: 0 auto; }
-        h1 { color: #4fc3f7; }
-        .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        a { color: #81c784; text-decoration: none; margin-left: 15px; }
-        select, textarea, button { width: 100%; padding: 10px; margin: 8px 0; background: #222; border: 1px solid #444; color: #eee; border-radius: 4px; box-sizing: border-box; font-family: monospace; }
-        textarea { height: 150px; resize: vertical; }
-        button { background: #1c7293; cursor: pointer; border: none; }
-        button:hover { background: #4fc3f7; }
-        #result { margin-top: 20px; background: #222; padding: 15px; border-radius: 8px; white-space: pre-wrap; font-size: 13px; min-height: 40px; }
-        .SUCCESS { color: #81c784; }
-        .FAILURE, .error { color: #e57373; }
-        .PENDING { color: #ffb74d; }
+        body { display: flex; height: 100vh; overflow: hidden; }
+
+        /* Sidebar */
+        .sidebar {
+            width: 220px;
+            background: var(--bg-elevated);
+            border-right: 1px solid var(--border);
+            padding: 24px 16px;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar h2 { font-size: 16px; margin-bottom: 30px; }
+        .sidebar a {
+            display: block;
+            color: var(--text-muted);
+            text-decoration: none;
+            padding: 10px 12px;
+            border-radius: 6px;
+            margin-bottom: 4px;
+            font-size: 14px;
+        }
+        .sidebar a:hover { background: var(--accent-soft); color: var(--accent); }
+        .sidebar a.active { background: var(--accent-soft); color: var(--accent); border-left: 3px solid var(--accent); }
+        .sidebar .whoami { margin-top: auto; font-size: 12px; color: var(--text-muted); padding-top: 20px; border-top: 1px solid var(--border); }
+
+        /* Main split area */
+        .main { flex: 1; display: flex; padding: 24px; gap: 24px; overflow: hidden; }
+        .panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        .panel h3 { font-size: 14px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+
+        #payload { flex: 1; resize: none; }
+        #taskType { margin-bottom: 12px; }
+        #submitBtn { margin-top: 12px; }
+
+        #result {
+            flex: 1;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
-    <div class="topbar">
-        <h1>Submit a Task</h1>
-        <div>
-            <span id="whoami"></span>
-            <a href="/dashboard">Dashboard</a>
-            <a href="#" onclick="logout()">Log Out</a>
+    <div class="sidebar">
+        <h2>Compute<span class="accent">Offload</span></h2>
+        <a href="/static/app.html" class="active">Submit Task</a>
+        <a href="/dashboard">Dashboard</a>
+        <div class="whoami">
+            <div id="whoami-name"></div>
+            <a href="#" onclick="logout()" style="padding-left:0; margin-top:8px;">Log Out</a>
         </div>
     </div>
 
-    <select id="taskType">
-        <option value="general">General Script (Python)</option>
-        <option value="numeric">Numeric (NumPy/SciPy)</option>
-        <option value="ml">ML Inference (PyTorch)</option>
-        <option value="render">Render (FFmpeg shell command)</option>
-    </select>
+    <div class="main">
+        <div class="panel">
+            <h3>Task</h3>
+            <select id="taskType">
+                <option value="general">General Script (Python)</option>
+                <option value="numeric">Numeric (NumPy/SciPy)</option>
+                <option value="ml">ML Inference (PyTorch)</option>
+                <option value="render">Render (FFmpeg shell command)</option>
+            </select>
+            <textarea id="payload" placeholder="Paste your script or command here..."></textarea>
+            <button id="submitBtn" onclick="submitTask()">Submit Task</button>
+        </div>
 
-    <textarea id="payload" placeholder="Paste your script or command here..."></textarea>
-
-    <button onclick="submitTask()">Submit Task</button>
-
-    <div id="result">Result will appear here...</div>
+        <div class="panel">
+            <h3>Output</h3>
+            <div id="result">Result will appear here...</div>
+        </div>
+    </div>
 
     <script>
         const token = localStorage.getItem("access_token");
         if (!token) {
             window.location.href = "/static/login.html";
         }
-        document.getElementById("whoami").innerText = "Logged in as " + localStorage.getItem("username");
+        document.getElementById("whoami-name").innerText = "Logged in as " + localStorage.getItem("username");
 
         function logout() {
             localStorage.removeItem("access_token");
@@ -81,7 +123,7 @@
             }
 
             const submitData = await submitRes.json();
-            resultDiv.innerText = "Queued (task_id=" + submitData.task_id + "). Waiting for result...";
+            resultDiv.innerText = "Queued (task_id=" + submitData.task_id + ")\nWaiting for result...";
 
             pollResult(submitData.task_id);
         }
