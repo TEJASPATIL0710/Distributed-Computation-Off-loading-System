@@ -228,3 +228,88 @@ def run_render_task(self, payload: str):
     finally:
         os.unlink(script_path)
         mark_idle(self.request.hostname)
+
+LANGUAGE_CONFIG = {
+    "python": {"ext": "py", "run_cmd": "python3 /task/script.py"},
+    "javascript": {"ext": "js", "run_cmd": "node /task/script.js"},
+    "cpp": {"ext": "cpp", "run_cmd": "g++ /task/script.cpp -o /task/a.out && /task/a.out"},
+}
+
+
+@celery_app.task(name="run_multilang_task", bind=True)
+def run_multilang_task(self, payload: str, language: str = "python"):
+    """
+    Same sandboxing pattern as every other task type — the only new
+    idea here is that the execution command depends on which language
+    was submitted, looked up from LANGUAGE_CONFIG.
+    """
+    start = time.time()
+
+    mark_busy(self.request.hostname, "run_multilang_task")
+
+    if language not in LANGUAGE_CONFIG:
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": f"Unsupported language '{language}'. Supported: {list(LANGUAGE_CONFIG.keys())}",
+            "execution_time_sec": 0.0,
+            "worker": self.request.hostname,
+        }
+
+    config = LANGUAGE_CONFIG[language]
+    ext = config["ext"]
+
+    # Write the user's code with the correct file extension for this language
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=f".{ext}", delete=False, encoding="utf-8", newline="\n"
+    ) as f:
+        f.write(payload)
+        code_path = f.name
+
+    # Write a tiny wrapper script that runs (and, for C++, compiles) the code.
+    # We can't just point Docker's CMD at the code file directly, since the
+    # command differs per language — this script bridges that gap.
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".sh", delete=False, encoding="utf-8", newline="\n"
+    ) as f:
+        f.write(config["run_cmd"])
+        script_path = f.name
+
+    try:
+        result = subprocess.run(
+            [
+                "docker", "run", "--rm",
+                "--memory", "512m",
+                "--cpus", "1.0",
+                "--network", "none",
+                "-v", f"{code_path}:/task/script.{ext}:ro",
+                "-v", f"{script_path}:/task/run.sh:ro",
+                "--entrypoint", "bash",
+                "offload-multilang-runner",
+                "/task/run.sh",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        elapsed = time.time() - start
+        return {
+            "status": "success" if result.returncode == 0 else "error",
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "execution_time_sec": round(elapsed, 4),
+            "worker": self.request.hostname,
+        }
+    except subprocess.TimeoutExpired:
+        elapsed = time.time() - start
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": "Task exceeded 20 second timeout.",
+            "execution_time_sec": round(elapsed, 4),
+            "worker": self.request.hostname,
+        }
+    finally:
+        os.unlink(code_path)
+        os.unlink(script_path)
+        mark_idle(self.request.hostname)

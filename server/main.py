@@ -11,7 +11,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from celery_app import celery_app
-from tasks import run_general_task, run_numeric_task, run_ml_task, run_render_task
+from tasks import run_general_task, run_numeric_task, run_ml_task, run_render_task, run_multilang_task, mark_busy
 from fastapi.responses import FileResponse, StreamingResponse
 from database import get_connection
 from auth import verify_password, create_access_token, decode_access_token
@@ -77,6 +77,7 @@ class TaskRequest(BaseModel):
     task_type: str
     payload: str
     client_id: str = "anonymous"
+    language: str = "python"  # only used when task_type == "multilang"
 
 class SubmitResponse(BaseModel):
     task_id: str
@@ -109,11 +110,14 @@ def submit_task(request: Request, task: TaskRequest, client_name: str = Depends(
         "render": run_render_task,
     }
 
-    task_fn = task_dispatch.get(task.task_type)
-    if task_fn is None:
-        return SubmitResponse(task_id="none", status=f"error: task type '{task.task_type}' not supported yet")
+    if task.task_type == "multilang":
+        async_result = run_multilang_task.delay(task.payload, task.language)
+    else:
+        task_fn = task_dispatch.get(task.task_type)
+        if task_fn is None:
+            return SubmitResponse(task_id="none", status=f"error: task type '{task.task_type}' not supported yet")
 
-    async_result = task_fn.delay(task.payload)
+        async_result = task_fn.delay(task.payload)
     log_entry = {
         "task_id": async_result.id,
         "task_type": task.task_type,
