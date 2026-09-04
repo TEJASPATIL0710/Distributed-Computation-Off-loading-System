@@ -1,12 +1,19 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>Compute Offload</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
     <style>
-        body { display: flex; height: 100vh; overflow: hidden; }
+        body {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
 
         /* Sidebar */
         .sidebar {
@@ -17,7 +24,12 @@
             display: flex;
             flex-direction: column;
         }
-        .sidebar h2 { font-size: 16px; margin-bottom: 30px; }
+
+        .sidebar h2 {
+            font-size: 16px;
+            margin-bottom: 30px;
+        }
+
         .sidebar a {
             display: block;
             color: var(--text-muted);
@@ -27,18 +39,62 @@
             margin-bottom: 4px;
             font-size: 14px;
         }
-        .sidebar a:hover { background: var(--accent-soft); color: var(--accent); }
-        .sidebar a.active { background: var(--accent-soft); color: var(--accent); border-left: 3px solid var(--accent); }
-        .sidebar .whoami { margin-top: auto; font-size: 12px; color: var(--text-muted); padding-top: 20px; border-top: 1px solid var(--border); }
+
+        .sidebar a:hover {
+            background: var(--accent-soft);
+            color: var(--accent);
+        }
+
+        .sidebar a.active {
+            background: var(--accent-soft);
+            color: var(--accent);
+            border-left: 3px solid var(--accent);
+        }
+
+        .sidebar .whoami {
+            margin-top: auto;
+            font-size: 12px;
+            color: var(--text-muted);
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+        }
 
         /* Main split area */
-        .main { flex: 1; display: flex; padding: 24px; gap: 24px; overflow: hidden; }
-        .panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-        .panel h3 { font-size: 14px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+        .main {
+            flex: 1;
+            display: flex;
+            padding: 24px;
+            gap: 24px;
+            overflow: hidden;
+        }
 
-        #payload { flex: 1; resize: none; }
-        #taskType { margin-bottom: 12px; }
-        #submitBtn { margin-top: 12px; }
+        .panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .panel h3 {
+            font-size: 14px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+        }
+
+        #payload {
+            flex: 1;
+            resize: none;
+        }
+
+        #taskType {
+            margin-bottom: 12px;
+        }
+
+        #submitBtn {
+            margin-top: 12px;
+        }
 
         #result {
             flex: 1;
@@ -52,6 +108,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="sidebar">
         <h2>Compute<span class="accent">Offload</span></h2>
@@ -66,11 +123,18 @@
     <div class="main">
         <div class="panel">
             <h3>Task</h3>
-            <select id="taskType">
+            <select id="taskType" onchange="toggleLanguageSelect()">
                 <option value="general">General Script (Python)</option>
                 <option value="numeric">Numeric (NumPy/SciPy)</option>
                 <option value="ml">ML Inference (PyTorch)</option>
                 <option value="render">Render (FFmpeg shell command)</option>
+                <option value="multilang">Multi-Language</option>
+            </select>
+
+            <select id="languageSelect" style="display: none;">
+                <option value="python">Python</option>
+                <option value="javascript">JavaScript (Node.js)</option>
+                <option value="cpp">C++</option>
             </select>
             <textarea id="payload" placeholder="Paste your script or command here..."></textarea>
             <button id="submitBtn" onclick="submitTask()">Submit Task</button>
@@ -103,13 +167,18 @@
             resultDiv.className = "";
             resultDiv.innerText = "Submitting...";
 
+            const requestBody = { task_type: taskType, payload: payload, client_id: "web-ui" };
+            if (taskType === "multilang") {
+                requestBody.language = document.getElementById("languageSelect").value;
+            }
+
             const submitRes = await fetch("/submit-task", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": "Bearer " + token,
                 },
-                body: JSON.stringify({ task_type: taskType, payload: payload, client_id: "web-ui" }),
+                body: JSON.stringify(requestBody),
             });
 
             if (submitRes.status === 401) {
@@ -154,6 +223,13 @@
 
             poll();
         }
+
+        function toggleLanguageSelect() {
+            const taskType = document.getElementById("taskType").value;
+            const langSelect = document.getElementById("languageSelect");
+            langSelect.style.display = taskType === "multilang" ? "block" : "none";
+        }
     </script>
 </body>
+
 </html>
