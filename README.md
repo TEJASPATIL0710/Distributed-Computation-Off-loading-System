@@ -29,6 +29,20 @@ Login page:  http://localhost:8000/static/login.html
 Dashboard:   http://localhost:8000/dashboard  
 API docs:    http://localhost:8000/docs
 
+## ML and video rendering examples
+
+Submit the included CPU-only ML inference example with:
+
+    python client/run_script.py my_scripts/ml_inference_example.py ml
+
+Submit the included FFmpeg render example with:
+
+    python client/run_script.py my_scripts/render_example.sh render
+
+The render result now includes an `artifacts` list. Each item contains a
+`download_path` such as `/task-artifact/<task-id>/output.mp4`; request that
+path with the same Bearer token to download the generated media.
+
 ## Occasional maintenance
 Flush Redis (safe, doesn't touch database):  
 docker exec -it redis-broker redis-cli FLUSHALL

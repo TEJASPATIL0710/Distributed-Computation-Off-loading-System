@@ -57,6 +57,10 @@ def submit_and_run(file_path: str, task_type: str = "general", client_id: str = 
             if result.get("stderr"):
                 print("--- ERRORS ---")
                 print(result["stderr"].strip())
+            if result.get("artifacts"):
+                print("--- ARTIFACTS ---")
+                for artifact in result["artifacts"]:
+                    print(f"{artifact['name']} ({artifact['size']} bytes): {artifact['download_path']}")
             return data
 
         time.sleep(0.5)

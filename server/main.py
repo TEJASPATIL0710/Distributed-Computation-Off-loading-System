@@ -13,6 +13,7 @@ from slowapi.errors import RateLimitExceeded
 from celery_app import celery_app
 from tasks import run_general_task, run_numeric_task, run_ml_task, run_render_task, run_multilang_task, mark_busy
 from fastapi.responses import FileResponse, StreamingResponse
+from tasks import ARTIFACT_ROOT
 from database import get_connection
 from auth import verify_password, create_access_token, decode_access_token
 from datetime import datetime, timezone
@@ -177,6 +178,20 @@ def get_task_result(task_id: str, client_name: str = Depends(verify_token)):
     conn.close()
 
     return {"task_id": task_id, "state": async_result.state, "result": async_result.result}
+
+
+@app.get("/task-artifact/{task_id}/{artifact_name:path}")
+def get_task_artifact(task_id: str, artifact_name: str, client_name: str = Depends(verify_token)):
+    """Download a file produced by a successful render task."""
+    task_root = (ARTIFACT_ROOT / task_id).resolve()
+    artifact_path = (task_root / artifact_name).resolve()
+    if task_root not in artifact_path.parents or not artifact_path.is_file():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return FileResponse(
+        artifact_path,
+        media_type="application/octet-stream",
+        filename=artifact_path.name,
+    )
 
 @app.get("/dashboard-data")
 def dashboard_data():

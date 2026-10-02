@@ -3,11 +3,42 @@ import json
 import subprocess
 import tempfile
 import time
+import mimetypes
+from pathlib import Path
+import shutil
 import redis as redis_lib
 
 from celery_app import celery_app
 
 dashboard_redis = redis_lib.Redis(host="localhost", port=6379, db=1, decode_responses=True)
+
+# Rendered files are copied out of the short-lived container before it exits.
+# Keeping this under server/ makes the feature work in both local and Docker
+# deployments without changing the existing task/result contract.
+ARTIFACT_ROOT = Path(__file__).resolve().parent / "artifacts"
+MAX_ARTIFACT_BYTES = 100 * 1024 * 1024
+
+
+def _collect_render_artifacts(work_dir: Path, task_id: str):
+    """Persist files produced by a render and return JSON-safe metadata."""
+    destination = ARTIFACT_ROOT / task_id
+    artifacts = []
+
+    for source in work_dir.rglob("*"):
+        if not source.is_file() or source.stat().st_size > MAX_ARTIFACT_BYTES:
+            continue
+        relative_name = source.relative_to(work_dir).as_posix()
+        target = destination / relative_name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        artifacts.append({
+            "name": relative_name,
+            "size": target.stat().st_size,
+            "content_type": mimetypes.guess_type(relative_name)[0] or "application/octet-stream",
+            "download_path": f"/task-artifact/{task_id}/{relative_name}",
+        })
+
+    return artifacts
 
 def mark_busy(hostname, task_name):
     dashboard_redis.set(
@@ -187,47 +218,55 @@ def run_render_task(self, payload: str):
 
     mark_busy(self.request.hostname, "run_render_task")
 
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".sh", delete=False, encoding="utf-8", newline="\n"
-    ) as f:
-        f.write(payload)
-        script_path = f.name
+    with tempfile.TemporaryDirectory(prefix="offload-render-") as render_dir:
+        work_dir = Path(render_dir)
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".sh", delete=False, encoding="utf-8", newline="\n"
+        ) as f:
+            f.write(payload)
+            script_path = f.name
 
-    try:
-        result = subprocess.run(
-            [
-                "docker", "run", "--rm",
-                "--memory", "512m",
-                "--cpus", "1.0",
-                "--network", "none",
-                "-v", f"{script_path}:/task/script.sh:ro",
-                "--entrypoint", "bash",
-                "offload-render-runner",
-                "/task/script.sh",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        elapsed = time.time() - start
-        return {
-            "status": "success" if result.returncode == 0 else "error",
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "execution_time_sec": round(elapsed, 4),
-            "worker": self.request.hostname,
-        }
-    except subprocess.TimeoutExpired:
-        elapsed = time.time() - start
-        return {
-            "status": "error",
-            "stdout": "",
-            "stderr": "Task exceeded 30 second timeout.",
-            "execution_time_sec": round(elapsed, 4),
-        }
-    finally:
-        os.unlink(script_path)
-        mark_idle(self.request.hostname)
+        try:
+            result = subprocess.run(
+                [
+                    "docker", "run", "--rm",
+                    "--memory", "512m",
+                    "--cpus", "1.0",
+                    "--network", "none",
+                    # Mount the output workspace as /task so existing payloads
+                    # writing to /task/output.mp4 keep working and are retained.
+                    "-v", f"{render_dir}:/task",
+                    "-v", f"{script_path}:/runner/script.sh:ro",
+                    "--entrypoint", "bash",
+                    "offload-render-runner",
+                    "/runner/script.sh",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            elapsed = time.time() - start
+            artifacts = _collect_render_artifacts(work_dir, self.request.id) if result.returncode == 0 else []
+            return {
+                "status": "success" if result.returncode == 0 else "error",
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "execution_time_sec": round(elapsed, 4),
+                "worker": self.request.hostname,
+                "artifacts": artifacts,
+            }
+        except subprocess.TimeoutExpired:
+            elapsed = time.time() - start
+            return {
+                "status": "error",
+                "stdout": "",
+                "stderr": "Task exceeded 30 second timeout.",
+                "execution_time_sec": round(elapsed, 4),
+                "artifacts": [],
+            }
+        finally:
+            os.unlink(script_path)
+            mark_idle(self.request.hostname)
 
 LANGUAGE_CONFIG = {
     "python": {"ext": "py", "run_cmd": "python3 /task/script.py"},
