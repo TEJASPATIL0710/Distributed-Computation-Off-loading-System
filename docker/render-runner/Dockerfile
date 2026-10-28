@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.12-slim
 
 # ffmpeg isn't a Python package — it's a system tool, installed via apt
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \

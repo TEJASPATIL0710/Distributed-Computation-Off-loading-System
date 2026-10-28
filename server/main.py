@@ -1,6 +1,6 @@
 import uuid
 import json
-import time
+import mimetypes
 import redis as redis_lib
 import csv
 import io
@@ -14,7 +14,7 @@ from celery_app import celery_app
 from tasks import run_general_task, run_numeric_task, run_ml_task, run_render_task, run_multilang_task, mark_busy
 from fastapi.responses import FileResponse, StreamingResponse
 from tasks import ARTIFACT_ROOT
-from database import get_connection
+from database import get_connection, save_task_result, task_result_from_row
 from auth import verify_password, create_access_token, decode_access_token
 from datetime import datetime, timezone
 from reportlab.lib import colors
@@ -35,12 +35,12 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler) 
 
-def verify_token(authorization: str = Header(...)) -> str:
+def verify_token(authorization: str | None = Header(None)) -> str:
     """
     Reads the 'Authorization' header, expected format: 'Bearer <token>'.
     Returns the username if the token is valid.
     """
-    if not authorization.startswith("Bearer "):
+    if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header format")
 
     token = authorization.removeprefix("Bearer ")
@@ -73,6 +73,28 @@ def query_task_logs(username: str = None, task_type: str = None, state: str = No
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def require_owned_task(task_id: str, username: str):
+    """Return a task log owned by the caller, hiding other users' task IDs."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM task_logs WHERE task_id = ? AND username = ?",
+        (task_id, username),
+    ).fetchone()
+    conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return dict(row)
+
+
+def report_owner_filter(
+    requested_username: str | None, authenticated_username: str
+) -> str:
+    """Prevent report filters from exposing another user's task history."""
+    if requested_username and requested_username != authenticated_username:
+        raise HTTPException(status_code=403, detail="Reports are limited to your own tasks")
+    return authenticated_username
 
 class TaskRequest(BaseModel):
     task_type: str
@@ -112,37 +134,48 @@ def submit_task(request: Request, task: TaskRequest, client_name: str = Depends(
     }
 
     if task.task_type == "multilang":
-        async_result = run_multilang_task.delay(task.payload, task.language)
+        task_fn = run_multilang_task
+        task_args = (task.payload, task.language)
     else:
         task_fn = task_dispatch.get(task.task_type)
         if task_fn is None:
             return SubmitResponse(task_id="none", status=f"error: task type '{task.task_type}' not supported yet")
 
-        async_result = task_fn.delay(task.payload)
-    log_entry = {
-        "task_id": async_result.id,
-        "task_type": task.task_type,
-        "client": client_name,
-        "submitted_at": time.time(),
-    }
-    dashboard_redis.lpush("task_log", json.dumps(log_entry))
-    dashboard_redis.ltrim("task_log", 0, 49) #keep only the most recent 50 log_entries
+        task_args = (task.payload,)
 
+    task_id = str(uuid.uuid4())
+    submitted_at = datetime.now(timezone.utc).isoformat()
     conn = get_connection()
     conn.execute(
-        """INSERT INTO task_logs (task_id, username, ip_address, task_type, submitted_at) VALUES (?, ?, ?, ?, ?)""",
+        """INSERT INTO task_logs
+           (task_id, username, ip_address, task_type, submitted_at, state,
+            client_id, language, payload)
+           VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)""",
         (
-            async_result.id,
+            task_id,
             client_name,
             request.client.host,
             task.task_type,
-            datetime.now(timezone.utc).isoformat(),
+            submitted_at,
+            task.client_id,
+            task.language if task.task_type == "multilang" else None,
+            task.payload,
         ),
     )
     conn.commit()
     conn.close()
 
-    return SubmitResponse(task_id=async_result.id, status="queued")
+    try:
+        task_fn.apply_async(args=task_args, task_id=task_id)
+    except Exception as exc:
+        save_task_result(
+            task_id,
+            "FAILURE",
+            {"status": "error", "stdout": "", "stderr": str(exc)},
+        )
+        raise HTTPException(status_code=503, detail="Task queue is unavailable") from exc
+
+    return SubmitResponse(task_id=task_id, status="queued")
 
 @app.get("/task-result/{task_id}")
 def get_task_result(task_id: str, client_name: str = Depends(verify_token)):
@@ -150,39 +183,39 @@ def get_task_result(task_id: str, client_name: str = Depends(verify_token)):
     The client calls this to check on a task it submitted earlier.
     'PENDING' means still queued or running; anything else means done.
     """
-    async_result = celery_app.AsyncResult(task_id)
+    task = require_owned_task(task_id, client_name)
+    try:
+        async_result = celery_app.AsyncResult(task_id)
+    except Exception as exc:
+        if task.get("state") not in (None, "PENDING"):
+            return {
+                "task_id": task_id,
+                "state": task["state"],
+                "result": task_result_from_row(task),
+            }
+        raise HTTPException(status_code=503, detail="Task result service is unavailable") from exc
 
     if async_result.state == "PENDING":
+        if task.get("state") not in (None, "PENDING"):
+            return {
+                "task_id": task_id,
+                "state": task["state"],
+                "result": task_result_from_row(task),
+            }
         return {"task_id": task_id, "state": "PENDING", "result": None}
 
-    # Task is done (success or error) — update the permanent log with
-    # the outcome, but only if we haven't already recorded it (avoids
-    # rewriting the same row every time the client polls after completion).
-    conn = get_connection()
-    existing = conn.execute(
-        "SELECT state FROM task_logs WHERE task_id = ?", (task_id,)
-    ).fetchone()
-
-    if existing and existing["state"] is None:
-        result = async_result.result if isinstance(async_result.result, dict) else {}
-        conn.execute(
-            """UPDATE task_logs SET state = ?, stderr = ?, execution_time_sec = ? WHERE task_id = ?""",
-            (
-                async_result.state,
-                result.get("stderr", ""),
-                result.get("execution_time_sec"),
-                task_id,
-            ),
-        )
-        conn.commit()
-    conn.close()
-
-    return {"task_id": task_id, "state": async_result.state, "result": async_result.result}
+    # Persist the complete result in SQLite if the worker completion signal
+    # was missed or this is a result from an older task.
+    result_data = save_task_result(task_id, async_result.state, async_result.result)
+    return {"task_id": task_id, "state": async_result.state, "result": result_data}
 
 
 @app.get("/task-artifact/{task_id}/{artifact_name:path}")
 def get_task_artifact(task_id: str, artifact_name: str, client_name: str = Depends(verify_token)):
     """Download a file produced by a successful render task."""
+    task = require_owned_task(task_id, client_name)
+    if task["task_type"] != "render":
+        raise HTTPException(status_code=404, detail="Artifact not found")
     task_root = (ARTIFACT_ROOT / task_id).resolve()
     artifact_path = (task_root / artifact_name).resolve()
     if task_root not in artifact_path.parents or not artifact_path.is_file():
@@ -194,7 +227,7 @@ def get_task_artifact(task_id: str, artifact_name: str, client_name: str = Depen
     )
 
 @app.get("/dashboard-data")
-def dashboard_data():
+def dashboard_data(client_name: str = Depends(verify_token)):
     # Queue depth: how many tasks are waiting in Celery's default queue
     queue_length = celery_app.connection().default_channel.client.llen("celery")
 
@@ -211,29 +244,100 @@ def dashboard_data():
             "current_tasks": [status["task"]] if status["task"] else [],
         })
 
-    # Recent task history, with live state looked up per task
-    raw_log = dashboard_redis.lrange("task_log", 0, 19)  # most recent 20
+    # SQLite is the durable task history. Large task details are loaded only
+    # when a row is opened, rather than on every dashboard refresh.
+    conn = get_connection()
+    task_rows = conn.execute(
+        """SELECT task_id, username, task_type, submitted_at, state,
+                  execution_time_sec, client_id, worker, completed_at
+           FROM task_logs WHERE username = ?
+           ORDER BY submitted_at DESC
+           """,
+        (client_name,),
+    ).fetchall()
+    conn.close()
+
     history = []
-    for entry_json in raw_log:
-        entry = json.loads(entry_json)
-        result = celery_app.AsyncResult(entry["task_id"])
-        worker_name = "-"
-        if result.state == "SUCCESS" and isinstance(result.result, dict):
-            worker_name = result.result.get("worker", "-")
+    for row in task_rows:
+        entry = dict(row)
+        state = entry["state"]
+        if state is None:
+            submitted = datetime.fromisoformat(entry["submitted_at"])
+            age_sec = (datetime.now(timezone.utc) - submitted).total_seconds()
+            state = "UNKNOWN" if age_sec > 3600 else "PENDING"
+
+        worker_name = entry["worker"] or "-"
         history.append({
             "task_id": entry["task_id"][:8],
+            "task_id_full": entry["task_id"],
             "task_type": entry["task_type"],
-            "client": entry["client"],
-            "state": result.state,
+            "username": entry["username"],
+            "client": entry["client_id"] or entry["username"],
+            "state": state,
             "worker": worker_name,
             "submitted_at": entry["submitted_at"],
+            "completed_at": entry["completed_at"],
+            "execution_time_sec": entry["execution_time_sec"],
         })
 
     return {
         "queue_length": queue_length,
         "workers": worker_status,
         "busy_workers": sum(1 for w in worker_status if w["busy"]),
-        "recent_tasks": history,
+        "task_history": history,
+    }
+
+
+@app.get("/task-details/{task_id}")
+def get_task_details(task_id: str, client_name: str = Depends(verify_token)):
+    """Return the complete durable record for one task owned by the caller."""
+    task = require_owned_task(task_id, client_name)
+    result_data = json.loads(task["result_json"]) if task.get("result_json") else None
+
+    # Older tasks may still have a live Celery result; capture it once if so.
+    if result_data is None:
+        try:
+            async_result = celery_app.AsyncResult(task_id)
+            if async_result.state != "PENDING":
+                result_data = save_task_result(
+                    task_id, async_result.state, async_result.result
+                )
+                task = require_owned_task(task_id, client_name)
+        except Exception:
+            pass
+
+    artifacts = (result_data or {}).get("artifacts", [])
+    if not artifacts and task["task_type"] == "render":
+        artifact_root = (ARTIFACT_ROOT / task_id).resolve()
+        if ARTIFACT_ROOT.resolve() in artifact_root.parents and artifact_root.is_dir():
+            for artifact_path in artifact_root.rglob("*"):
+                if not artifact_path.is_file():
+                    continue
+                relative_name = artifact_path.relative_to(artifact_root).as_posix()
+                artifacts.append({
+                    "name": relative_name,
+                    "size": artifact_path.stat().st_size,
+                    "content_type": mimetypes.guess_type(relative_name)[0] or "application/octet-stream",
+                    "download_path": f"/task-artifact/{task_id}/{relative_name}",
+                })
+
+    return {
+        "task_id": task["task_id"],
+        "username": task["username"],
+        "client_id": task.get("client_id"),
+        "ip_address": task["ip_address"],
+        "task_type": task["task_type"],
+        "language": task.get("language"),
+        "submitted_at": task["submitted_at"],
+        "completed_at": task.get("completed_at"),
+        "state": task.get("state") or "UNKNOWN",
+        "worker": task.get("worker"),
+        "execution_time_sec": task.get("execution_time_sec"),
+        "payload": task.get("payload"),
+        "stdout": task.get("stdout"),
+        "stderr": task.get("stderr"),
+        "result": result_data,
+        "artifacts": artifacts,
     }
 
 @app.get("/dashboard")
@@ -261,13 +365,17 @@ def report_csv(
     state: str = None,
     client_name: str = Depends(verify_token),
 ):
-    rows = query_task_logs(username=username, task_type=task_type, state=state)
+    owner = report_owner_filter(username, client_name)
+    rows = query_task_logs(username=owner, task_type=task_type, state=state)
 
     output = io.StringIO()
     writer = csv.DictWriter(
         output,
-        fieldnames=["id", "task_id", "username", "ip_address", "task_type",
-                    "submitted_at", "state", "stderr", "execution_time_sec"],
+        fieldnames=[
+            "id", "task_id", "username", "ip_address", "client_id", "task_type",
+            "language", "payload", "submitted_at", "completed_at", "state",
+            "worker", "stdout", "stderr", "execution_time_sec", "result_json",
+        ],
     )
     writer.writeheader()
     writer.writerows(rows)
@@ -286,7 +394,8 @@ def report_pdf(
     state: str = None,
     client_name: str = Depends(verify_token),
 ):
-    rows = query_task_logs(username=username, task_type=task_type, state=state)
+    owner = report_owner_filter(username, client_name)
+    rows = query_task_logs(username=owner, task_type=task_type, state=state)
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A4))
@@ -309,14 +418,16 @@ def report_pdf(
     elements.append(Spacer(1, 0.5 * cm))
 
     # Table header + rows
-    table_data = [["ID", "User", "IP", "Type", "Submitted At", "State", "Time (s)"]]
+    table_data = [["ID", "User", "Worker", "IP", "Type", "Submitted", "Completed", "State", "Time (s)"]]
     for r in rows:
         table_data.append([
             str(r["id"]),
             r["username"],
+            r["worker"] or "-",
             r["ip_address"],
             r["task_type"],
             r["submitted_at"][:19],  # trim to readable length
+            r["completed_at"][:19] if r["completed_at"] else "-",
             r["state"] or "-",
             str(r["execution_time_sec"]) if r["execution_time_sec"] else "-",
         ])

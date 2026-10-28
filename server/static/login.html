@@ -16,17 +16,27 @@
     </style>
 </head>
 <body>
-    <div class="card login-box">
+    <form class="card login-box" onsubmit="doLogin(event)">
         <h1>Compute<span class="accent">Offload</span></h1>
         <p>Sign in to submit tasks</p>
-        <input type="text" id="username" placeholder="Username">
-        <input type="password" id="password" placeholder="Password">
-        <button onclick="doLogin()">Log In</button>
+        <input type="text" id="username" name="username" placeholder="Username" autocomplete="username" required>
+        <input type="password" id="password" name="password" placeholder="Password" autocomplete="current-password" required>
+        <button type="submit">Log In</button>
         <div id="error"></div>
-    </div>
+    </form>
 
     <script>
-        async function doLogin() {
+        const loginForm = document.querySelector(".login-box");
+
+        loginForm.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" && event.target.matches("input")) {
+                event.preventDefault();
+                loginForm.requestSubmit();
+            }
+        });
+
+        async function doLogin(event) {
+            event.preventDefault();
             const username = document.getElementById("username").value;
             const password = document.getElementById("password").value;
             const errorDiv = document.getElementById("error");

@@ -71,6 +71,27 @@
         }
         .badge.BUSY { background: rgba(251, 191, 36, 0.15); color: var(--warning); }
         .badge.IDLE { background: rgba(74, 222, 128, 0.15); color: var(--success); }
+        .details-button { padding: 6px 10px; font-size: 12px; }
+        dialog {
+            width: min(760px, calc(100vw - 32px));
+            max-height: 85vh;
+            overflow-y: auto;
+            color: var(--text);
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 22px;
+        }
+        dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
+        .details-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 18px; }
+        .details-header h2 { font-size: 18px; }
+        .details-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+        .detail-field { min-width: 0; }
+        .detail-label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .7px; }
+        .detail-value, .detail-block pre { overflow-wrap: anywhere; white-space: pre-wrap; margin: 5px 0 0; font-size: 12px; }
+        .detail-block { margin-top: 18px; }
+        .detail-block pre { max-height: 260px; overflow: auto; background: var(--bg-elevated); padding: 12px; border-radius: 6px; }
+        @media (max-width: 700px) { .details-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -107,13 +128,26 @@
             <tr><th>Worker</th><th>Status</th><th>Running</th></tr>
         </table>
 
-        <div class="section-title">Recent Tasks</div>
+        <div class="section-title">Task History</div>
         <table id="tasks-table">
-            <tr><th>Task ID</th><th>Type</th><th>Client</th><th>Worker</th><th>State</th></tr>
+            <tr><th>Task ID</th><th>Type</th><th>Username</th><th>Client</th><th>Worker</th><th>State</th><th>Details</th></tr>
         </table>
     </div>
 
+    <dialog id="task-details-dialog" aria-labelledby="task-details-title">
+        <div class="details-header">
+            <h2 id="task-details-title">Task Details</h2>
+            <button type="button" id="close-task-details">Close</button>
+        </div>
+        <div id="task-details-content"></div>
+    </dialog>
+
     <script>
+        const token = localStorage.getItem("access_token");
+        if (!token) {
+            window.location.replace("/static/login.html");
+        }
+
         const username = localStorage.getItem("username");
         document.getElementById("whoami-name").innerText = username ? "Logged in as " + username : "";
 
@@ -123,8 +157,118 @@
             window.location.href = "/static/login.html";
         }
 
+        const detailsDialog = document.getElementById("task-details-dialog");
+        const detailsContent = document.getElementById("task-details-content");
+        document.getElementById("close-task-details").addEventListener("click", () => detailsDialog.close());
+
+        function appendDetail(parent, label, value, block = false) {
+            const wrapper = document.createElement(block ? "section" : "div");
+            wrapper.className = block ? "detail-block" : "detail-field";
+            const heading = document.createElement(block ? "h3" : "div");
+            heading.className = "detail-label";
+            heading.textContent = label;
+            const content = document.createElement(block ? "pre" : "p");
+            if (!block) content.className = "detail-value";
+            content.textContent = value === null || value === undefined || value === ""
+                ? "Not retained for this task"
+                : String(value);
+            wrapper.append(heading, content);
+            parent.appendChild(wrapper);
+        }
+
+        async function downloadArtifact(artifact) {
+            const response = await fetch(artifact.download_path, {
+                headers: { "Authorization": "Bearer " + token },
+            });
+            if (response.status === 401) {
+                logout();
+                return;
+            }
+            if (!response.ok) throw new Error("Could not download " + artifact.name);
+
+            const objectUrl = URL.createObjectURL(await response.blob());
+            const link = document.createElement("a");
+            link.href = objectUrl;
+            link.download = artifact.name.split("/").pop() || "task-artifact";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+        }
+
+        async function openTaskDetails(taskId) {
+            detailsContent.replaceChildren();
+            detailsContent.textContent = "Loading task details...";
+            detailsDialog.showModal();
+
+            try {
+                const response = await fetch("/task-details/" + encodeURIComponent(taskId), {
+                    headers: { "Authorization": "Bearer " + token },
+                });
+                if (response.status === 401) {
+                    logout();
+                    return;
+                }
+                if (!response.ok) throw new Error("Could not load task details.");
+
+                const task = await response.json();
+                detailsContent.replaceChildren();
+                const grid = document.createElement("div");
+                grid.className = "details-grid";
+                [
+                    ["Task ID", task.task_id],
+                    ["Owner", task.username],
+                    ["Client ID", task.client_id],
+                    ["Client address", task.ip_address],
+                    ["Task type", task.task_type],
+                    ["Language", task.language],
+                    ["State", task.state],
+                    ["Worker", task.worker],
+                    ["Submitted", task.submitted_at],
+                    ["Completed", task.completed_at],
+                    ["Execution time (seconds)", task.execution_time_sec],
+                ].forEach(([label, value]) => appendDetail(grid, label, value));
+                detailsContent.appendChild(grid);
+                appendDetail(detailsContent, "Submitted payload", task.payload, true);
+                appendDetail(detailsContent, "Standard output", task.stdout, true);
+                appendDetail(detailsContent, "Errors", task.stderr, true);
+                appendDetail(detailsContent, "Complete result and artifacts", task.result ? JSON.stringify(task.result, null, 2) : null, true);
+                if (task.artifacts && task.artifacts.length) {
+                    const artifactSection = document.createElement("section");
+                    artifactSection.className = "detail-block";
+                    const artifactHeading = document.createElement("h3");
+                    artifactHeading.className = "detail-label";
+                    artifactHeading.textContent = "Generated files";
+                    artifactSection.appendChild(artifactHeading);
+                    task.artifacts.forEach(artifact => {
+                        const downloadButton = document.createElement("button");
+                        downloadButton.type = "button";
+                        downloadButton.className = "details-button";
+                        downloadButton.textContent = "Download " + artifact.name + " (" + artifact.size + " bytes)";
+                        downloadButton.addEventListener("click", () => {
+                            downloadArtifact(artifact).catch(error => {
+                                detailsContent.dataset.downloadError = error.message;
+                            });
+                        });
+                        artifactSection.appendChild(downloadButton);
+                    });
+                    detailsContent.appendChild(artifactSection);
+                }
+                refresh();
+            } catch (error) {
+                detailsContent.textContent = error.message;
+            }
+        }
+
         async function refresh() {
-            const res = await fetch("/dashboard-data");
+            const res = await fetch("/dashboard-data", {
+                headers: { "Authorization": "Bearer " + token },
+            });
+            if (res.status === 401) {
+                logout();
+                return;
+            }
+            if (!res.ok) return;
             const data = await res.json();
 
             document.getElementById("queue-length").innerText = data.queue_length;
@@ -134,23 +278,35 @@
             const workersTable = document.getElementById("workers-table");
             workersTable.innerHTML = "<tr><th>Worker</th><th>Status</th><th>Running</th></tr>";
             data.workers.forEach(w => {
-                workersTable.innerHTML += `<tr>
-                    <td>${w.worker}</td>
-                    <td><span class="badge ${w.busy ? 'BUSY' : 'IDLE'}">${w.busy ? 'BUSY' : 'IDLE'}</span></td>
-                    <td>${w.current_tasks.join(", ") || "-"}</td>
-                </tr>`;
+                const row = workersTable.insertRow();
+                row.insertCell().textContent = w.worker;
+                const statusCell = row.insertCell();
+                const statusBadge = document.createElement("span");
+                statusBadge.className = "badge " + (w.busy ? "BUSY" : "IDLE");
+                statusBadge.textContent = w.busy ? "BUSY" : "IDLE";
+                statusCell.appendChild(statusBadge);
+                row.insertCell().textContent = w.current_tasks.join(", ") || "-";
             });
 
             const tasksTable = document.getElementById("tasks-table");
-            tasksTable.innerHTML = "<tr><th>Task ID</th><th>Type</th><th>Client</th><th>Worker</th><th>State</th></tr>";
-            data.recent_tasks.forEach(t => {
-                tasksTable.innerHTML += `<tr>
-                    <td>${t.task_id}</td>
-                    <td>${t.task_type}</td>
-                    <td>${t.client}</td>
-                    <td>${t.worker}</td>
-                    <td class="${t.state}">${t.state}</td>
-                </tr>`;
+            tasksTable.innerHTML = "<tr><th>Task ID</th><th>Type</th><th>Username</th><th>Client</th><th>Worker</th><th>State</th><th>Details</th></tr>";
+            data.task_history.forEach(t => {
+                const row = tasksTable.insertRow();
+                row.insertCell().textContent = t.task_id;
+                row.insertCell().textContent = t.task_type;
+                row.insertCell().textContent = t.username || "-";
+                row.insertCell().textContent = t.client;
+                row.insertCell().textContent = t.worker;
+                const stateCell = row.insertCell();
+                stateCell.textContent = t.state;
+                stateCell.className = t.state;
+                const detailsCell = row.insertCell();
+                const detailsButton = document.createElement("button");
+                detailsButton.type = "button";
+                detailsButton.className = "details-button";
+                detailsButton.textContent = "View";
+                detailsButton.addEventListener("click", () => openTaskDetails(t.task_id_full));
+                detailsCell.appendChild(detailsButton);
             });
         }
 

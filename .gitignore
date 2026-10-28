@@ -1,0 +1,8 @@
+/server/.secret_key
+/venv/
+/venv313_backup/
+/.work-tmp/
+/server/users.db
+/server/users.db-*
+/server/__pycache__/
+/server/artifacts/

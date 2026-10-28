@@ -17,6 +17,14 @@ dashboard_redis = redis_lib.Redis(host="localhost", port=6379, db=1, decode_resp
 # deployments without changing the existing task/result contract.
 ARTIFACT_ROOT = Path(__file__).resolve().parent / "artifacts"
 MAX_ARTIFACT_BYTES = 100 * 1024 * 1024
+DOCKER_SANDBOX_ARGS = [
+    "--network", "none",
+    "--pids-limit", "64",
+    "--cap-drop", "ALL",
+    "--security-opt", "no-new-privileges",
+    "--read-only",
+    "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=128m",
+]
 
 
 def _collect_render_artifacts(work_dir: Path, task_id: str):
@@ -78,7 +86,7 @@ def run_general_task(self, payload: str):
                 "docker", "run", "--rm",
                 "--memory", "256m",
                 "--cpus", "0.5",
-                "--network", "none",
+                *DOCKER_SANDBOX_ARGS,
                 "-v", f"{script_path}:/task/script.py:ro",
                 "offload-general-runner",
             ],
@@ -128,7 +136,7 @@ def run_numeric_task(self, payload: str):
                 "docker", "run", "--rm",
                 "--memory", "512m",       # a bit more headroom than general — matrix ops need it
                 "--cpus", "1.0",
-                "--network", "none",
+                *DOCKER_SANDBOX_ARGS,
                 "-v", f"{script_path}:/task/script.py:ro",
                 "offload-numeric-runner",
             ],
@@ -179,7 +187,7 @@ def run_ml_task(self, payload: str):
                 "docker", "run", "--rm",
                 "--memory", "1g",
                 "--cpus", "1.0",
-                "--network", "none",
+                *DOCKER_SANDBOX_ARGS,
                 "-v", f"{script_path}:/task/script.py:ro",
                 "offload-ml-runner",
             ],
@@ -232,7 +240,7 @@ def run_render_task(self, payload: str):
                     "docker", "run", "--rm",
                     "--memory", "512m",
                     "--cpus", "1.0",
-                    "--network", "none",
+                    *DOCKER_SANDBOX_ARGS,
                     # Mount the output workspace as /task so existing payloads
                     # writing to /task/output.mp4 keep working and are retained.
                     "-v", f"{render_dir}:/task",
@@ -271,7 +279,7 @@ def run_render_task(self, payload: str):
 LANGUAGE_CONFIG = {
     "python": {"ext": "py", "run_cmd": "python3 /task/script.py"},
     "javascript": {"ext": "js", "run_cmd": "node /task/script.js"},
-    "cpp": {"ext": "cpp", "run_cmd": "g++ /task/script.cpp -o /task/a.out && /task/a.out"},
+    "cpp": {"ext": "cpp", "run_cmd": "g++ /task/script.cpp -o /tmp/a.out && /tmp/a.out"},
 }
 
 
@@ -320,7 +328,7 @@ def run_multilang_task(self, payload: str, language: str = "python"):
                 "docker", "run", "--rm",
                 "--memory", "512m",
                 "--cpus", "1.0",
-                "--network", "none",
+                *DOCKER_SANDBOX_ARGS,
                 "-v", f"{code_path}:/task/script.{ext}:ro",
                 "-v", f"{script_path}:/task/run.sh:ro",
                 "--entrypoint", "bash",

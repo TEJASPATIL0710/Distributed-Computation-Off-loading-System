@@ -1,7 +1,13 @@
 import threading
 import time
+import logging
 
 from celery import Celery
+from celery.signals import task_postrun
+from database import init_db, save_task_result
+
+logger = logging.getLogger(__name__)
+init_db()
 
 celery_app = Celery(
     "compute_offload",
@@ -19,6 +25,26 @@ celery_app.conf.broker_transport_options = {"visibility_timeout": 30}
 
 import tasks  # noqa: E402 — must come after celery_app is defined, registers our tasks
 from celery.signals import worker_ready
+
+
+@task_postrun.connect
+def persist_completed_task(sender=None, task_id=None, state=None, retval=None, **kwargs):
+    """Save task output and worker identity before the Celery result expires."""
+    if not task_id or state == "RETRY":
+        return
+
+    worker_name = None
+    try:
+        worker_name = sender.request.hostname
+    except (AttributeError, TypeError):
+        pass
+
+    try:
+        save_task_result(task_id, state or "FAILURE", retval, worker_name)
+    except Exception:
+        # A history write failure should be visible in worker logs without
+        # masking the task's original result or crashing the worker process.
+        logger.exception("Could not persist result for task %s", task_id)
 
 def heartbeat_loop(hostname):
     """

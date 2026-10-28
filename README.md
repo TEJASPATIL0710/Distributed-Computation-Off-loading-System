@@ -1,6 +1,9 @@
 # Distributed-Computation-Off-loading-System
 A multi-client, load-balanced platform that lets low-power devices offload heavy compute tasks to a remote server — securely, reliably, at scale.
 
+The local server environment and Python task runner images use Python 3.12.
+Task history, submitted payloads, complete results and worker names are stored locally in `server/users.db`; render files remain in `server/artifacts/`. Both are excluded from Git because they contain local account/task data and generated files. On a fresh checkout, create a login account from the `server` directory with `python create_user.py <username> <password>`.
+
 # Compute Offload — Startup Commands
 
 Run these in order. Each "Terminal X" is a separate terminal tab/window.
@@ -8,6 +11,11 @@ Run these in order. Each "Terminal X" is a separate terminal tab/window.
 ## One-time check (any terminal)
 docker ps  
 docker start redis-broker
+
+The API automatically creates a private JWT signing key in `server/.secret_key`
+on first start and reuses it across restarts. The file is excluded from Git.
+Deployments can provide `OFFLOAD_SECRET_KEY` through the environment instead.
+Keep the same key across API instances; changing it invalidates existing tokens.
 
 ## Terminal 1 — Worker 1
 celery -A celery_app worker --loglevel=info --pool=solo -n worker1@%h
